@@ -5,23 +5,32 @@ Handles screen capture using MSS library.
 Captures frames in BGR format for OpenCV compatibility.
 """
 
-import cv2
+import mss
+import threading
 import numpy as np
-from mss import mss
 
 class ScreenCapturer:
-    """Captures screenshots of a specified screen region."""
-    
-    def __init__(self, monitor={"top": 0, "left": 0, "width": 1920, "height": 1080}):
-        """
-        Args:
-            monitor (dict): Screen region to capture (default: full HD screen).
-        """
-        self.sct = mss()
+    def __init__(self, monitor=1):
         self.monitor = monitor
+        self.latest_frame = None
+        self.running = False
+        self.thread = None
 
-    def capture_frame(self) -> np.ndarray:
-        """Returns a BGR-formatted numpy array of the captured frame."""
-        screenshot = self.sct.grab(self.monitor)
-        frame = np.array(screenshot)
-        return cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._update_loop, daemon=True)
+        self.thread.start()
+
+    def _update_loop(self):
+        with mss.mss() as sct:
+            while self.running:
+                raw = sct.grab(self.monitor)
+                self.latest_frame = np.array(raw)
+
+    def get_frame(self):
+        return self.latest_frame.copy() if self.latest_frame is not None else None
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()

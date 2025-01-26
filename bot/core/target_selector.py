@@ -1,65 +1,47 @@
 # bot/core/target_selector.py
-import numpy as np
 import time
 
 class TargetSelector:
-    def __init__(self, cluster_threshold=100, lock_duration=5):
-        # Clustering parameters
-        self.cluster_threshold = cluster_threshold  # Pixel distance for grouping trees
-        # Target locking parameters
+    def __init__(self):
         self.current_target = None
-        self.target_lock_duration = lock_duration
-        self.last_lock_time = 0
+        self.target_lock_duration = 5  # Seconds to keep target if lost
+        self.last_target_time = 0
 
-    def cluster_trees(self, boxes):
-        """Groups nearby trees into clusters using simple distance-based grouping."""
-        clusters = []
-        used_indices = set()
-
-        for i, (x1, y1, w1, h1) in enumerate(boxes):
-            if i in used_indices:
-                continue
-            cluster = [i]
-            used_indices.add(i)
-            center1 = np.array([x1 + w1/2, y1 + h1/2])
-
-            for j, (x2, y2, w2, h2) in enumerate(boxes):
-                if j in used_indices:
-                    continue
-                center2 = np.array([x2 + w2/2, y2 + h2/2])
-                distance = np.linalg.norm(center1 - center2)
-
-                if distance < self.cluster_threshold:
-                    cluster.append(j)
-                    used_indices.add(j)
-
-            clusters.append(cluster)
-        return clusters
-
-    def select_target(self, boxes):
-        # Check target lock status
-        if self.current_target and (time.time() - self.last_lock_time < self.target_lock_duration):
-            return self.current_target
-        
-        # Find clusters if no active target
-        clusters = self.cluster_trees(boxes)
-        if not clusters:
+    def select_target(self, detections):
+        if not detections:
             return None
 
-        # Find largest cluster
-        largest_cluster = max(clusters, key=lambda x: len(x))
-        
-        # Find largest tree in cluster
-        largest_area = 0
-        best_box = None
-        for idx in largest_cluster:
-            x, y, w, h = boxes[idx]
-            area = w * h
-            if area > largest_area:
-                largest_area = area
-                best_box = boxes[idx]
+        # If we have a current target that's still visible, keep it
+        if self.current_target:
+            for detection in detections:
+                if detection['label'] == self.current_target['label'] and \
+                   self._boxes_overlap(detection['bbox'], self.current_target['bbox']):
+                    return self.current_target
 
-        # Update target lock
-        self.current_target = best_box
-        self.last_lock_time = time.time()
-        return best_box
+            # If target lost but within lock duration, keep it
+            if (time.time() - self.last_target_time) < self.target_lock_duration:
+                return self.current_target
+
+        # Select new target based on largest bounding box area
+        largest = max(detections, key=lambda x: self._bbox_area(x['bbox']))
+        self.current_target = largest
+        self.last_target_time = time.time()
+        return largest
+
+    def _bbox_area(self, bbox):
+        x1, y1, x2, y2 = bbox
+        return (x2 - x1) * (y2 - y1)
+
+    def _boxes_overlap(self, box1, box2, threshold=0.7):
+        # Calculate intersection over union (IoU)
+        x1_i = max(box1[0], box2[0])
+        y1_i = max(box1[1], box2[1])
+        x2_i = min(box1[2], box2[2])
+        y2_i = min(box1[3], box2[3])
+        
+        intersection = max(0, x2_i - x1_i) * max(0, y2_i - y1_i)
+        area1 = self._bbox_area(box1)
+        area2 = self._bbox_area(box2)
+        
+        iou = intersection / (area1 + area2 - intersection)
+        return iou > threshold
