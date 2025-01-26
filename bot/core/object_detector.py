@@ -1,13 +1,17 @@
 # bot/core/object_detector.py
 import cv2
+import os
 import numpy as np
 from inference_sdk import InferenceHTTPClient
 from bot.config.settings import settings  # <-- Import the instance
+from datetime import datetime
 
 class ObjectDetector:
     def __init__(self):
         self.overlay_enabled = True
         # Initialize Roboflow client
+        self.debug_dir = "debug_frames"
+        os.makedirs(self.debug_dir, exist_ok=True)
         self.client = InferenceHTTPClient(
             api_url="https://detect.roboflow.com",
             api_key=settings.ROBOFLOW_API_KEY
@@ -44,11 +48,12 @@ class ObjectDetector:
         return detections
 
     def process_frame(self, frame, detections):
-        """Add overlay to frame (unchanged from your original)"""
-        if settings.SHOW_OVERLAY and self.overlay_enabled:
-            return self._draw_detections(frame, detections)
-        return frame
-
+        processed_frame = self._draw_detections(frame, detections)
+        if settings.SHOW_OVERLAY:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
+        return processed_frame
+    
     def _draw_detections(self, frame, detections):
         """Draw detection boxes (unchanged from your original)"""
         overlay_frame = frame.copy()

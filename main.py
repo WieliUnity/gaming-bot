@@ -4,10 +4,10 @@ import cv2
 from bot.core.screen_capturer import ScreenCapturer
 from bot.core.object_detector import ObjectDetector
 from bot.core.target_selector import TargetSelector
-from bot.config import settings
+from bot.config.settings import settings  # <-- Fix this line
 
 def main():
-    capturer = ScreenCapturer(monitor=1)
+    capturer = ScreenCapturer()
     detector = ObjectDetector()
     selector = TargetSelector()
     
