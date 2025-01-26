@@ -23,20 +23,9 @@ def main():
                 # Select target using your prioritization logic
                 target = selector.select_target(detections)
                 
-                # Optional: Highlight the selected target
-            #    if target:
-            #        x1, y1, x2, y2 = target['bbox']
-            #        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-            
-                # Process and save frame (no window display)
-                _ = detector.process_frame(frame, detections)
-
-                # Show overlay with all detections + target highlight
-            #    processed_frame = detector.process_frame(frame, detections)
-            #    if settings.SHOW_OVERLAY:
-            #        cv2.imshow('Bot Overlay', processed_frame)
-            #        if cv2.waitKey(1) == ord('q'):
-            #           break
+                if settings.DEBUG:   # Optional: Highlight the selected target
+                    # Process and save frame (no window display)
+                    _ = detector.process_frame(frame, detections,target)
             
             time.sleep(0.1)  # Reduce CPU usage
     finally:

@@ -47,15 +47,15 @@ class ObjectDetector:
             })
         return detections
 
-    def process_frame(self, frame, detections):
+    def process_frame(self, frame, detections,target=None):
         
         if settings.DEBUG:
-            processed_frame = self._draw_detections(frame, detections)
+            processed_frame = self._draw_detections(frame, detections,target)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
         return frame
     
-    def _draw_detections(self, frame, detections):
+    def _draw_detections(self, frame, detections, target=None):
         """Draw detection boxes (unchanged from your original)"""
         overlay_frame = frame.copy()
         for detection in detections:
@@ -65,5 +65,9 @@ class ObjectDetector:
                        f"{detection['label']} {detection['confidence']:.2f}",
                        (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
                        (0, 255, 0), 2)
+    # Draw target in red (on top of detections)
+        if target:
+            x1, y1, x2, y2 = target['bbox']
+            cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
         
         return cv2.addWeighted(overlay_frame, 0.7, frame, 0.3, 0)
