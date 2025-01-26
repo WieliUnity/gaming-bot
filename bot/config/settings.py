@@ -2,6 +2,7 @@ class Settings:
     #showing object detection overlay
     SHOW_OVERLAY: bool = True
     ROBOFLOW_API_KEY: str = "sCfrom9qV4tNDXpgFScX"  # Your key here
+    
     # Screen capture
     MONITOR_REGION = {
         "top": 0,
@@ -20,3 +21,5 @@ class Settings:
     
     # Debug
     DEBUG = True  # Enable debug overlays
+settings = Settings()  # <-- Add this line
+    

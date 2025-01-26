@@ -3,6 +3,8 @@ train_data/
 test_data/
 train_data/Trees_Winter_Day
 links to files.txt
+ONNX implementation and YOLO training locally.txt
+Ashes of Creation Bot Project Context File.docx
 # Models
 models/*.onnx
 !models/placeholder.txt  # Keep empty file to retain folder

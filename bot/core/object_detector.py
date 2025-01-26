@@ -2,7 +2,7 @@
 import cv2
 import numpy as np
 from inference_sdk import InferenceHTTPClient
-from bot.config import settings
+from bot.config.settings import settings  # <-- Import the instance
 
 class ObjectDetector:
     def __init__(self):
