@@ -1,0 +1,21 @@
+# Data
+train_data/
+test_data/
+
+# Models
+models/*.onnx
+!models/placeholder.txt  # Keep empty file to retain folder
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
