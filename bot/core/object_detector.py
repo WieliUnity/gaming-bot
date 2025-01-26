@@ -48,11 +48,12 @@ class ObjectDetector:
         return detections
 
     def process_frame(self, frame, detections):
-        processed_frame = self._draw_detections(frame, detections)
-        if settings.SHOW_OVERLAY:
+        
+        if settings.DEBUG:
+            processed_frame = self._draw_detections(frame, detections)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
-        return processed_frame
+        return frame
     
     def _draw_detections(self, frame, detections):
         """Draw detection boxes (unchanged from your original)"""

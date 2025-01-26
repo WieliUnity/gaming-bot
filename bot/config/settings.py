@@ -1,6 +1,6 @@
 class Settings:
     #showing object detection overlay
-    SHOW_OVERLAY: bool = True
+    DEBUG: bool = True
     DEBUG_DIR: str = "debug_frames"  # Add this line
     ROBOFLOW_API_KEY: str = "sCfrom9qV4tNDXpgFScX"  # Your key here
     
