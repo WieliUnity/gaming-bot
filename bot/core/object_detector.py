@@ -9,44 +9,81 @@ from datetime import datetime
 class ObjectDetector:
     def __init__(self):
         self.overlay_enabled = True
-        # Initialize Roboflow client
         self.debug_dir = "debug_frames"
         os.makedirs(self.debug_dir, exist_ok=True)
-        self.client = InferenceHTTPClient(
-            api_url="https://detect.roboflow.com",
-            api_key=settings.ROBOFLOW_API_KEY
-        )
-        self.model_id = "gaming-bot/2"
+        
+        # Load ONNX model
+        self.net = cv2.dnn.readNetFromONNX(settings.MODEL_PATH)
+        self.input_size = 640  # YOLOv8 default
+        
+        # Keep original color conversion flag
+        self.color_conversion = cv2.COLOR_BGR2RGB 
 
     def detect(self, frame):
-        """Run inference using Roboflow SDK"""
-        # Convert BGR to RGB (Roboflow expects RGB)
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self.client.infer(rgb_frame, model_id=self.model_id)
-        return self._parse_results(results)
-
-    def _parse_results(self, results):
-        """Convert Roboflow predictions to our detection format"""
-        detections = []
-        for prediction in results.get("predictions", []):
-            # Convert center-based coordinates to corner-based
-            x = prediction["x"]
-            y = prediction["y"]
-            width = prediction["width"]
-            height = prediction["height"]
-            
-            detections.append({
-                "label": prediction["class"],
-                "confidence": prediction["confidence"],
-                "bbox": [
-                    int(x - width/2),  # x1
-                    int(y - height/2), # y1
-                    int(x + width/2),  # x2
-                    int(y + height/2)  # y2
-                ]
-            })
+        """Run inference using ONNX model"""
+        # Preprocess
+        blob, ratio = self._preprocess(frame)
+        
+        # Inference
+        self.net.setInput(blob)
+        outputs = self.net.forward(self.net.getUnconnectedOutLayersNames())
+        
+        # Post-process
+        detections = self._postprocess(outputs, ratio)
         return detections
 
+    def _preprocess(self, frame):
+        """Resize and normalize image for YOLOv8"""
+        # Keep aspect ratio
+        h, w = frame.shape[:2]
+        scale = min(self.input_size / w, self.input_size / h)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        
+        resized = cv2.resize(frame, (new_w, new_h))
+        blob = cv2.dnn.blobFromImage(
+            resized, 
+            1/255.0, 
+            (self.input_size, self.input_size), 
+            swapRB=True,  # Maintain RGB order
+            crop=False
+        )
+        
+        return blob, scale
+
+    def _postprocess(self, outputs, ratio):
+        """Convert raw outputs to detection format"""
+        detections = []
+        outputs = np.squeeze(outputs[0]).T
+        
+        # Filter by confidence
+        conf_threshold = settings.CONFIDENCE_THRESHOLD
+        scores = outputs[:, 4:]
+        max_scores = np.max(scores, axis=1)
+        mask = max_scores > conf_threshold
+        outputs = outputs[mask]
+        
+        for output in outputs:
+            # Extract class with highest score
+            class_id = np.argmax(output[4:])
+            confidence = output[4 + class_id]
+            
+            # Get original coordinates
+            x, y, w, h = output[0], output[1], output[2], output[3]
+            
+            # Scale to original image
+            left = int((x - w/2) / ratio)
+            top = int((y - h/2) / ratio)
+            right = int((x + w/2) / ratio)
+            bottom = int((y + h/2) / ratio)
+            
+            detections.append({
+                "label": settings.TARGET_CLASS,  # From your settings
+                "confidence": float(confidence),
+                "bbox": [left, top, right, bottom]
+            })
+            
+        return detections
     def process_frame(self, frame, detections,target=None):
         
         if settings.DEBUG:

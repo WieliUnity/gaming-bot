@@ -1,0 +1,369 @@
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\main.py
+--------------------------------------------------------------------------------
+
+# main.py
+import time
+import cv2
+from bot.core.screen_capturer import ScreenCapturer
+from bot.core.object_detector import ObjectDetector
+from bot.core.target_selector import TargetSelector
+from bot.config.settings import settings  # <-- Fix this line
+
+def main():
+    capturer = ScreenCapturer()
+    detector = ObjectDetector()
+    selector = TargetSelector()
+    
+    capturer.start()
+    
+    try:
+        while True:
+            frame = capturer.get_frame()
+            if frame is not None:
+                # Get detections from Roboflow
+                detections = detector.detect(frame)
+                
+                # Select target using your prioritization logic
+                target = selector.select_target(detections)
+                
+                if settings.DEBUG:   # Optional: Highlight the selected target
+                    # Process and save frame (no window display)
+                    _ = detector.process_frame(frame, detections,target)
+            
+            time.sleep(0.1)  # Reduce CPU usage
+    finally:
+        capturer.stop()
+        #cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\config\settings.py
+--------------------------------------------------------------------------------
+
+class Settings:
+    #showing object detection overlay
+    DEBUG: bool = True
+    DEBUG_DIR: str = "debug_frames"  # Add this line
+    ROBOFLOW_API_KEY: str = "sCfrom9qV4tNDXpgFScX"  # Your key here
+    
+    # Screen capture
+    MONITOR_REGION = {
+        "top": 0,
+        "left": 0,
+        "width": 1920,
+        "height": 1080
+    }
+    
+    # Object detection
+    CONFIDENCE_THRESHOLD = 0.7
+    MODEL_PATH = "bot/models/tree_model.onnx"
+    TARGET_CLASS = "tree"  # Default target resource
+    
+    # Controls
+    CLICK_DELAY = (0.2, 0.5)  # Random delay range
+    
+    # Debug
+    DEBUG = True  # Enable debug overlays
+settings = Settings()  # <-- Add this line
+    
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\config\__init__.py
+--------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\core\actions.py
+--------------------------------------------------------------------------------
+
+"""
+ACTIONS MODULE
+--------------
+Handles mouse/keyboard actions with human-like randomization.
+"""
+
+import pyautogui
+import random
+import time
+
+class Actions:
+    def __init__(self):
+        # Disable pyautogui's failsafe (use with caution!)
+        pyautogui.FAILSAFE = False
+        self.screen_width, self.screen_height = pyautogui.size()
+
+    def human_move(self, x: int, y: int):
+        """Moves mouse to (x,y) with human-like jitter/delays."""
+        # Add slight offset to target
+        x += random.randint(-5, 5)
+        y += random.randint(-5, 5)
+        
+        # Non-linear movement duration
+        duration = random.uniform(0.3, 0.7)
+        pyautogui.moveTo(x, y, duration=duration)
+
+    def human_click(self, x: int, y: int, button: str = 'left'):
+        """Clicks at (x,y) with randomized delays."""
+        self.human_move(x, y)
+        time.sleep(random.uniform(0.1, 0.3))  # Pretend to "aim"
+        pyautogui.click(button=button)
+        time.sleep(random.uniform(0.2, 0.5))  # Post-click delay
+
+    def press_key(self, key: str, repeats: int = 1):
+        """Presses a key with human-like timing."""
+        for _ in range(repeats):
+            pyautogui.keyDown(key)
+            time.sleep(random.uniform(0.05, 0.1))
+            pyautogui.keyUp(key)
+            time.sleep(random.uniform(0.1, 0.3))
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\core\object_detector.py
+--------------------------------------------------------------------------------
+
+# bot/core/object_detector.py
+import cv2
+import os
+import numpy as np
+from inference_sdk import InferenceHTTPClient
+from bot.config.settings import settings  # <-- Import the instance
+from datetime import datetime
+
+class ObjectDetector:
+    def __init__(self):
+        self.overlay_enabled = True
+        # Initialize Roboflow client
+        self.debug_dir = "debug_frames"
+        os.makedirs(self.debug_dir, exist_ok=True)
+        self.client = InferenceHTTPClient(
+            api_url="https://detect.roboflow.com",
+            api_key=settings.ROBOFLOW_API_KEY
+        )
+        self.model_id = "gaming-bot/2"
+
+    def detect(self, frame):
+        """Run inference using Roboflow SDK"""
+        # Convert BGR to RGB (Roboflow expects RGB)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.client.infer(rgb_frame, model_id=self.model_id)
+        return self._parse_results(results)
+
+    def _parse_results(self, results):
+        """Convert Roboflow predictions to our detection format"""
+        detections = []
+        for prediction in results.get("predictions", []):
+            # Convert center-based coordinates to corner-based
+            x = prediction["x"]
+            y = prediction["y"]
+            width = prediction["width"]
+            height = prediction["height"]
+            
+            detections.append({
+                "label": prediction["class"],
+                "confidence": prediction["confidence"],
+                "bbox": [
+                    int(x - width/2),  # x1
+                    int(y - height/2), # y1
+                    int(x + width/2),  # x2
+                    int(y + height/2)  # y2
+                ]
+            })
+        return detections
+
+    def process_frame(self, frame, detections,target=None):
+        
+        if settings.DEBUG:
+            processed_frame = self._draw_detections(frame, detections,target)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
+        return frame
+    
+    def _draw_detections(self, frame, detections, target=None):
+        """Draw detection boxes (unchanged from your original)"""
+        overlay_frame = frame.copy()
+        for detection in detections:
+            x1, y1, x2, y2 = detection['bbox']
+            cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(overlay_frame, 
+                       f"{detection['label']} {detection['confidence']:.2f}",
+                       (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, 
+                       (0, 255, 0), 2)
+    # Draw target in red (on top of detections)
+        if target:
+            x1, y1, x2, y2 = target['bbox']
+            cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
+        
+        return cv2.addWeighted(overlay_frame, 0.7, frame, 0.3, 0)
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\core\screen_capturer.py
+--------------------------------------------------------------------------------
+
+"""
+SCREEN CAPTURER MODULE
+-----------------------
+Handles screen capture using MSS library.
+Captures frames in BGR format for OpenCV compatibility.
+"""
+
+import mss
+import threading
+import numpy as np
+from bot.config.settings import settings  # <-- Import settings
+
+class ScreenCapturer:
+    def __init__(self):
+        self.monitor = settings.MONITOR_REGION  # <-- Use settings
+        self.latest_frame = None
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        self.running = True
+        self.thread = threading.Thread(target=self._update_loop, daemon=True)
+        self.thread.start()
+
+    def _update_loop(self): 
+        with mss.mss() as sct:
+            while self.running:
+                raw = sct.grab(self.monitor)  # Now uses the dictionary
+                self.latest_frame = np.array(raw)
+
+    def get_frame(self):
+        return self.latest_frame.copy() if self.latest_frame is not None else None
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\core\target_selector.py
+--------------------------------------------------------------------------------
+
+# bot/core/target_selector.py
+import time
+
+class TargetSelector:
+    def __init__(self):
+        self.current_target = None
+        self.target_lock_duration = 5  # Seconds to keep target if lost
+        self.last_target_time = 0
+
+    def select_target(self, detections):
+        if not detections:
+            return None
+
+        # If we have a current target that's still visible, keep it
+        if self.current_target:
+            for detection in detections:
+                if detection['label'] == self.current_target['label'] and \
+                   self._boxes_overlap(detection['bbox'], self.current_target['bbox']):
+                    return self.current_target
+
+            # If target lost but within lock duration, keep it
+            if (time.time() - self.last_target_time) < self.target_lock_duration:
+                return self.current_target
+
+        # Select new target based on largest bounding box area
+        largest = max(detections, key=lambda x: self._bbox_area(x['bbox']))
+        self.current_target = largest
+        self.last_target_time = time.time()
+        return largest
+
+    def _bbox_area(self, bbox):
+        x1, y1, x2, y2 = bbox
+        return (x2 - x1) * (y2 - y1)
+
+    def _boxes_overlap(self, box1, box2, threshold=0.7):
+        # Calculate intersection over union (IoU)
+        x1_i = max(box1[0], box2[0])
+        y1_i = max(box1[1], box2[1])
+        x2_i = min(box1[2], box2[2])
+        y2_i = min(box1[3], box2[3])
+        
+        intersection = max(0, x2_i - x1_i) * max(0, y2_i - y1_i)
+        area1 = self._bbox_area(box1)
+        area2 = self._bbox_area(box2)
+        
+        iou = intersection / (area1 + area2 - intersection)
+        return iou > threshold
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\bot\core\__init__.py
+--------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\scripts\combine_code.py
+--------------------------------------------------------------------------------
+
+import os
+
+# Define the folder path and output file
+folder_path = r"C:/Python Projects/gaming-bot"
+output_file = "all_raw_code.txt"
+
+# Open the output file for writing
+with open(output_file, "w", encoding="utf-8") as outfile:
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith(".py"):
+                # Get the full path to the .py file
+                file_path = os.path.join(root, file)
+                
+                # Write a separator and the file path
+                outfile.write(f"\n{'-'*80}\n")
+                outfile.write(f"File Path: {file_path}\n")
+                outfile.write(f"{'-'*80}\n\n")
+                
+                # Read the .py file's content and write it to the output file
+                with open(file_path, "r", encoding="utf-8") as infile:
+                    outfile.write(infile.read())
+                    outfile.write("\n")
+
+print(f"All Python files have been combined into {output_file}.")
+
+
+--------------------------------------------------------------------------------
+File Path: C:/Python Projects/gaming-bot\scripts\dataset_capture.py
+--------------------------------------------------------------------------------
+
+# scripts/dataset_capture.py
+import sys
+import os
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Rest of your imports
+import cv2
+import time
+from datetime import datetime
+from bot.core.screen_capturer import ScreenCapturer
+
+def capture_training_data(
+    output_dir: str = "train_data",
+    interval: int = 2,          # Seconds between captures
+    max_captures: int = 1000,   # Max images to collect
+    region: dict = {"top": 100, "left": 0, "width": 1920, "height": 980}  # Exclude UI
+):
+    os.makedirs(output_dir, exist_ok=True)
+    capturer = ScreenCapturer(monitor=region)
+    
+    print(f"Capturing {max_captures} screenshots to {output_dir}...")
+    for i in range(max_captures):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        frame = capturer.capture_frame()
+        cv2.imwrite(f"{output_dir}/capture_{timestamp}_{i}.jpg", frame)
+        time.sleep(interval)
+        print(f"Captured image {i+1}/{max_captures}")
+
+if __name__ == "__main__":
+    capture_training_data()

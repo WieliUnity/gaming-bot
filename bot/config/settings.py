@@ -2,7 +2,7 @@ class Settings:
     #showing object detection overlay
     DEBUG: bool = True
     DEBUG_DIR: str = "debug_frames"  # Add this line
-    ROBOFLOW_API_KEY: str = "sCfrom9qV4tNDXpgFScX"  # Your key here
+    
     
     # Screen capture
     MONITOR_REGION = {
@@ -13,7 +13,7 @@ class Settings:
     }
     
     # Object detection
-    CONFIDENCE_THRESHOLD = 0.7
+    CONFIDENCE_THRESHOLD = 0.65
     MODEL_PATH = "bot/models/tree_model.onnx"
     TARGET_CLASS = "tree"  # Default target resource
     

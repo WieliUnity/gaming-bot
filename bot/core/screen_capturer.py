@@ -22,7 +22,7 @@ class ScreenCapturer:
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
         self.thread.start()
 
-    def _update_loop(self):
+    def _update_loop(self): 
         with mss.mss() as sct:
             while self.running:
                 raw = sct.grab(self.monitor)  # Now uses the dictionary
