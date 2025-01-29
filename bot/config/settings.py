@@ -13,10 +13,10 @@ class Settings:
     }
     
     # Object detection
-    CONFIDENCE_THRESHOLD = 0.65
-    MODEL_PATH = "bot/models/tree_model.onnx"
+    CONFIDENCE_THRESHOLD = 0.5
+    MODEL_PATH = "bot/models/tree_model_no1.onnx"
     TARGET_CLASS = "tree"  # Default target resource
-    
+    CLASS_NAMES = ["tree"]  # in settings.py
     # Controls
     CLICK_DELAY = (0.2, 0.5)  # Random delay range
     

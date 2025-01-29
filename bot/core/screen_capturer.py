@@ -12,7 +12,7 @@ from bot.config.settings import settings  # <-- Import settings
 
 class ScreenCapturer:
     def __init__(self):
-        self.monitor = settings.MONITOR_REGION  # <-- Use settings
+        self.monitor = settings.MONITOR_REGION
         self.latest_frame = None
         self.running = False
         self.thread = None
@@ -22,13 +22,18 @@ class ScreenCapturer:
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
         self.thread.start()
 
-    def _update_loop(self): 
+    def _update_loop(self):
         with mss.mss() as sct:
             while self.running:
-                raw = sct.grab(self.monitor)  # Now uses the dictionary
-                self.latest_frame = np.array(raw)
+                # Grab the screen (BGRA by default)
+                raw = sct.grab(self.monitor)
+                # Convert to a NumPy array and discard alpha channel
+                frame_bgra = np.array(raw)  # shape: (H, W, 4)
+                frame_bgr = frame_bgra[:, :, :3]  # keep only B, G, R
+                self.latest_frame = frame_bgr
 
     def get_frame(self):
+        # Return a copy so we don't accidentally modify the live frame
         return self.latest_frame.copy() if self.latest_frame is not None else None
 
     def stop(self):
