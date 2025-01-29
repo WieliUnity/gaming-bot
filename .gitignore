@@ -7,6 +7,8 @@ ONNX implementation and YOLO training locally.txt
 debug_frames
 Ashes of Creation Bot Project Context File.docx
 *.tmp
+models/
+all_raw_code.txt
 # Models
 models/*.onnx
 !models/placeholder.txt  # Keep empty file to retain folder
