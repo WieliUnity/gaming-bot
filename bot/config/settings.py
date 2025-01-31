@@ -1,6 +1,6 @@
 class Settings:
     #showing object detection overlay
-    DEBUG: bool = True
+    DEBUG: bool = False
     DEBUG_DIR: str = "debug_frames"  # Add this line
     
     
@@ -8,19 +8,22 @@ class Settings:
     MONITOR_REGION = {
         "top": 0,
         "left": 0,
-        "width": 1920,
-        "height": 1080
+        "width": 2560,
+        "height": 1600
     }
     
     # Object detection
     CONFIDENCE_THRESHOLD = 0.5
-    MODEL_PATH = "bot/models/tree_model_no1.onnx"
-    TARGET_CLASS = "tree"  # Default target resource
-    CLASS_NAMES = ["tree"]  # in settings.py
+    MODEL_PATH = "bot/models/best_w_trunks.onnx"
+    CLASS_NAMES = ["tree", "trunk"]  # Uncommented and corrected
+    PRIORITY_TARGETS = ["trunk","tree"]
+    #CLASS_NAMES = ["tree"]
+    #PRIORITY_TARGETS = ["tree"]
+    #TARGET_CLASS = ["tree", "trunk"]
     # Controls
     CLICK_DELAY = (0.2, 0.5)  # Random delay range
     
     # Debug
-    DEBUG = True  # Enable debug overlays
+
 settings = Settings()  # <-- Add this line
     

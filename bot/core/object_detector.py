@@ -1,4 +1,3 @@
-# bot/core/object_detector.py
 import cv2
 import os
 import numpy as np
@@ -7,11 +6,17 @@ from bot.config.settings import settings
 
 class ObjectDetector:
     def __init__(self):
-        self.debug_dir = "debug_frames"
-        os.makedirs(self.debug_dir, exist_ok=True)
+        if settings.DEBUG:
+            self.debug_dir = settings.DEBUG_DIR
+            os.makedirs(self.debug_dir, exist_ok=True)
         
-        # Load ONNX model (exported with nms=False)
-        self.net = cv2.dnn.readNetFromONNX(settings.MODEL_PATH)
+
+        # Load ONNX model (exported with nms=False, multi-class)
+        try:
+            self.net = cv2.dnn.readNetFromONNX(settings.MODEL_PATH)
+        except Exception as e:
+            print(f"Error loading ONNX model: {e}")
+            raise
         
         # YOLOv8 default dimensions
         self.input_size = 640
@@ -22,64 +27,7 @@ class ObjectDetector:
         self.iou_threshold = 0.45
 
     def detect(self, frame):
-        """Run inference using ONNX model."""
-        # 1) Preprocess (direct resize to 640x640 + create blob)
-        blob, (ratio_w, ratio_h) = self._preprocess(frame)
-
-        # 2) Run forward pass
-        self.net.setInput(blob)
-        layer_names = self.net.getUnconnectedOutLayersNames()
-        outputs = self.net.forward(layer_names)
-
-        # 3) Postprocess
-        detections = self._postprocess(outputs, ratio_w, ratio_h)
-        return detections
-
-    def _preprocess(self, frame):
-        """
-        Directly resize the input frame from (H,W) to (640,640).
-        We then keep track of the ratio to map boxes back later.
-        """
-        original_h, original_w = frame.shape[:2]
-        resized = cv2.resize(frame, (self.input_size, self.input_size))
-        blob = cv2.dnn.blobFromImage(
-            resized,
-            scalefactor=1/255.0,
-            size=(self.input_size, self.input_size),
-            swapRB=True,
-            crop=False
-        )
-        ratio_w = original_w / self.input_size
-        ratio_h = original_h / self.input_size
-
-        return blob, (ratio_w, ratio_h)
-
-    # bot/core/object_detector.py
-import cv2
-import os
-import numpy as np
-from datetime import datetime
-from bot.config.settings import settings
-
-class ObjectDetector:
-    def __init__(self):
-        self.debug_dir = "debug_frames"
-        os.makedirs(self.debug_dir, exist_ok=True)
-        
-        # Load ONNX model (exported with nms=False)
-        self.net = cv2.dnn.readNetFromONNX(settings.MODEL_PATH)
-        
-        # YOLOv8 default dimensions
-        self.input_size = 640
-        
-        # Confidence threshold from your settings
-        self.conf_threshold = settings.CONFIDENCE_THRESHOLD
-        # Optional NMS IoU threshold
-        self.iou_threshold = 0.45
-
-    def detect(self, frame):
-        """Run inference using ONNX model."""
-        # 1) Preprocess (direct resize to 640x640 + create blob)
+        # 1) Preprocess
         blob, (ratio_w, ratio_h) = self._preprocess(frame)
 
         # 2) Forward pass
@@ -93,11 +41,14 @@ class ObjectDetector:
 
     def _preprocess(self, frame):
         """
-        Directly resize the input frame from (H,W) to (640,640).
-        We then keep track of the ratio to map boxes back later.
+        Resizes the frame directly to 640x640 for YOLO input.
+        Computes scaling factors for mapping detections back to the original screen.
         """
-        original_h, original_w = frame.shape[:2]
+        original_h, original_w = frame.shape[:2]  # (1600, 2560)
+
+        # Resize the image to YOLO's input size (without keeping aspect ratio)
         resized = cv2.resize(frame, (self.input_size, self.input_size))
+
         blob = cv2.dnn.blobFromImage(
             resized,
             scalefactor=1/255.0,
@@ -105,159 +56,122 @@ class ObjectDetector:
             swapRB=True,
             crop=False
         )
-        ratio_w = original_w / self.input_size
-        ratio_h = original_h / self.input_size
+
+        # Compute the direct scaling factors from 640x640 back to 2560x1600
+        ratio_w = original_w / self.input_size  # 2560 / 640 = 4.0
+        ratio_h = original_h / self.input_size  # 1600 / 640 = 2.5
+
+        print(f"DEBUG: ratio_w={ratio_w:.3f}, ratio_h={ratio_h:.3f}, original_w={original_w}, original_h={original_h}")
 
         return blob, (ratio_w, ratio_h)
 
     def _postprocess(self, outputs, ratio_w, ratio_h):
-        """
-        Convert raw YOLO outputs to detection format and run NMS in code.
-        (Assumes ONNX file was exported with nms=False and single-class.)
+        """Process YOLOv8 outputs to detections with screen coordinates."""
+        # Unpack and verify model outputs
+        raw = np.squeeze(outputs[0], 0)
+        num_classes = len(settings.CLASS_NAMES)
         
-        For shape (1,5,8400):
-          raw[0, :, :] -> shape (5, 8400):
-            channel 0 = x_center of all anchors
-            channel 1 = y_center of all anchors
-            channel 2 = w         of all anchors
-            channel 3 = h         of all anchors
-            channel 4 = confidence of all anchors
-        """
-        # The main output is outputs[0], shape = (1, 5, 8400)
-        raw = outputs[0]
+        # Extract prediction components
+        xc, yc, w, h = raw[:4]
+        class_scores = raw[4:4+num_classes]
+        confidences = np.max(class_scores, axis=0)
 
-        # Remove batch dimension => shape (5, 8400)
-        raw = np.squeeze(raw, axis=0)
-        # debug info
-        print("==== _postprocess DEBUG ====")
-        print(f"raw.shape = {raw.shape} (should be (5, 8400) for single-class)")
-
-        x_all = raw[0]  # shape (8400,)
-        y_all = raw[1]
-        w_all = raw[2]
-        h_all = raw[3]
-        conf_all = raw[4]
-
-        bboxes = []
-        confidences = []
-
-        # 1) Parse each anchor
-        for i in range(x_all.shape[0]):
-            x_center = x_all[i]
-            y_center = y_all[i]
-            w        = w_all[i]
-            h        = h_all[i]
-            conf     = conf_all[i]
-
-            # Filter by confidence
-            if conf < self.conf_threshold:
-                continue
-
-            # If coords look normalized (< ~20?), multiply by 640 if needed
-            # But typically these are direct pixel coords if your training used no 'end2end' export.
-            # If they're obviously <1, multiply by 640:
-            if x_center < 1.5 and w < 1.5:
-                x_center *= self.input_size
-                y_center *= self.input_size
-                w        *= self.input_size
-                h        *= self.input_size
-
-            # Convert to [left, top, width, height]
-            left = x_center - (w / 2)
-            top  = y_center - (h / 2)
-
-            bboxes.append([left, top, w, h])
-            confidences.append(float(conf))
-
-        print(f"Total anchors passing conf>{self.conf_threshold}: {len(bboxes)}")
-
-        # 2) NMS
-        indices = cv2.dnn.NMSBoxes(bboxes, confidences, self.conf_threshold, self.iou_threshold)
+        # Process each prediction
         detections = []
-
-        for idx in indices.flatten():
-            x, y, w, h = bboxes[idx]
-            conf = confidences[idx]
-
-            # Scale back to original resolution
-            x *= ratio_w
-            y *= ratio_h
-            w *= ratio_w
-            h *= ratio_h
-
-            left   = int(x)
-            top    = int(y)
-            right  = int(x + w)
-            bottom = int(y + h)
-
+        for i in np.where(confidences >= self.conf_threshold)[0]:
+            # Calculate coordinates
+            x = (xc[i] - w[i]/2) * ratio_w
+            y = (yc[i] - h[i]/2) * ratio_h
+            r = (xc[i] + w[i]/2) * ratio_w
+            b = (yc[i] + h[i]/2) * ratio_h
+            
+            # Clip to screen bounds
+            x, y = max(0, int(x)), max(0, int(y))
+            r, b = map(lambda v: min(v, settings.MONITOR_REGION["width"]), 
+                    [int(r), int(b)])
+            
+            # Store detection
+            class_id = np.argmax(class_scores[:, i])
             detections.append({
-                "label": settings.TARGET_CLASS,
-                "confidence": conf,
-                "bbox": [left, top, right, bottom]
+                "bbox": [x, y, r, b],
+                "confidence": float(confidences[i]),
+                "label": settings.CLASS_NAMES[class_id]
             })
 
-        print(f"Final detections after NMS: {len(detections)}")
-        for det in detections[:5]:
-            print("  ", det)
+        # Apply NMS and format results
+        indices = cv2.dnn.NMSBoxes(
+            [d["bbox"] for d in detections],
+            [d["confidence"] for d in detections],
+            self.conf_threshold, self.iou_threshold
+        )
+        
+        # Final filtered results
+        final_detections = []
+        for idx in (indices.flatten() if isinstance(indices, np.ndarray) else indices):
+            det = detections[idx]
+            final_detections.append(det)
+            print(f"✅ {det['label']} ({det['confidence']:.2f}) "
+                f"at {det['bbox']}")
 
-        print("==== End _postprocess DEBUG ====\n")
-        return detections
+        print(f"DEBUG: {len(detections)} pre-NMS -> {len(final_detections)} post-NMS")
+        return final_detections
 
     def process_frame(self, frame, detections, target=None):
+        """Draw detections and save debug image with matching logs."""
         if settings.DEBUG:
-            processed_frame = self._draw_detections(frame, detections, target)
+            # Create a unique timestamped filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
+            filename = f"frame_{timestamp}.png"
+            filepath = os.path.join(self.debug_dir, filename)
+
+            # Draw the bounding boxes
+            processed_frame = self._draw_detections(frame, detections, target)
+
+            # Save the image
+            cv2.imwrite(filepath, processed_frame)
+
+            # ✅ Print log entry with matching filename
+            print(f"📸 Saved debug image: {filename} with {len(detections)} detections.")
+
         return frame
+
 
     def _draw_detections(self, frame, detections, target=None):
         overlay_frame = frame.copy()
         for detection in detections:
             x1, y1, x2, y2 = detection['bbox']
+            
+            # Ensure coordinates are correctly drawn
+            x1, y1 = max(0, x1), max(0, y1)  # Prevent negative values
+            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)  # Stay within frame
+            
+            # Draw green bounding box for all detections
             cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(
-                overlay_frame, 
+                overlay_frame,
                 f"{detection['label']} {detection['confidence']:.2f}",
-                (x1, y1 - 10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 
+                (x1, max(0, y1 - 10)),  # Prevent text from going off-screen
+                cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (0, 255, 0), 
+                (0, 255, 0),
                 2
             )
 
+        # Draw red bounding box for the target
         if target:
             x1, y1, x2, y2 = target['bbox']
+            x1, y1 = max(0, x1), max(0, y1)  # Prevent negative values
+            x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)  # Stay within frame
+            
             cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-
-        return cv2.addWeighted(overlay_frame, 0.7, frame, 0.3, 0)
-
-
-    def process_frame(self, frame, detections, target=None):
-        """Optional: Draw detections for debug purposes."""
-        if settings.DEBUG:
-            processed_frame = self._draw_detections(frame, detections, target)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            cv2.imwrite(f"{self.debug_dir}/frame_{timestamp}.png", processed_frame)
-        return frame
-
-    def _draw_detections(self, frame, detections, target=None):
-        """Draw bounding boxes and optionally highlight the locked-on target."""
-        overlay_frame = frame.copy()
-        for detection in detections:
-            x1, y1, x2, y2 = detection['bbox']
-            cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.putText(
-                overlay_frame, 
-                f"{detection['label']} {detection['confidence']:.2f}",
-                (x1, y1 - 10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 
+                overlay_frame,
+                f"{target['label']} {target['confidence']:.2f}",
+                (x1, max(0, y1 - 10)),  # Prevent text from going off-screen
+                cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                (0, 255, 0), 
+                (0, 0, 255),
                 2
             )
-
-        if target:
-            x1, y1, x2, y2 = target['bbox']
-            cv2.rectangle(overlay_frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
 
         return cv2.addWeighted(overlay_frame, 0.7, frame, 0.3, 0)
