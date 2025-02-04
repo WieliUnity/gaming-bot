@@ -3,13 +3,18 @@ import os
 # Define the folder path and output file
 folder_path = r"C:/Python Projects/gaming-bot"
 output_file = "all_raw_code.txt"
-exclude_folder = os.path.join(folder_path, "scripts")  # Folder to exclude
+
+# Create a list of folders to exclude
+excluded_folders = [
+    os.path.join(folder_path, "scripts"),
+    os.path.join(folder_path, "models")
+]
 
 # Open the output file for writing
 with open(output_file, "w", encoding="utf-8") as outfile:
     for root, dirs, files in os.walk(folder_path):
-        # Skip the "/scripts" folder
-        if root.startswith(exclude_folder):
+        # Skip if the current root starts with any of the excluded folders
+        if any(root.startswith(exclude_path) for exclude_path in excluded_folders):
             continue
 
         for file in files:
@@ -27,4 +32,4 @@ with open(output_file, "w", encoding="utf-8") as outfile:
                     outfile.write(infile.read())
                     outfile.write("\n")
 
-print(f"All Python files (excluding /scripts) have been combined into {output_file}.")
+print(f"All Python files (excluding scripts and model folders) have been combined into {output_file}.")

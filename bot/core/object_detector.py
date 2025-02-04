@@ -1,6 +1,7 @@
 import cv2
 import os
 import numpy as np
+import time
 from datetime import datetime
 from bot.config.settings import settings
 
@@ -10,7 +11,7 @@ class ObjectDetector:
             self.debug_dir = settings.DEBUG_DIR
             os.makedirs(self.debug_dir, exist_ok=True)
         
-
+        
         # Load ONNX model (exported with nms=False, multi-class)
         try:
             self.net = cv2.dnn.readNetFromONNX(settings.MODEL_PATH)
@@ -19,25 +20,26 @@ class ObjectDetector:
             raise
         
         # YOLOv8 default dimensions
-        self.input_size = 640
+        self.input_size = settings.INPUT_SIZE
         
         # Confidence threshold from your settings
         self.conf_threshold = settings.CONFIDENCE_THRESHOLD
         # Optional NMS IoU threshold
-        self.iou_threshold = 0.45
+        self.iou_threshold = settings.IOU_THRESHOLD
 
-    def detect(self, frame):
+    def detect(self, frame): 
         # 1) Preprocess
-        blob, (ratio_w, ratio_h) = self._preprocess(frame)
-
+        blob, (ratio_w, ratio_h) = self._preprocess(frame)   
         # 2) Forward pass
         self.net.setInput(blob)
         layer_names = self.net.getUnconnectedOutLayersNames()
         outputs = self.net.forward(layer_names)
-
         # 3) Postprocess
+
+
         detections = self._postprocess(outputs, ratio_w, ratio_h)
         return detections
+        
 
     def _preprocess(self, frame):
         """
@@ -61,7 +63,7 @@ class ObjectDetector:
         ratio_w = original_w / self.input_size  # 2560 / 640 = 4.0
         ratio_h = original_h / self.input_size  # 1600 / 640 = 2.5
 
-        print(f"DEBUG: ratio_w={ratio_w:.3f}, ratio_h={ratio_h:.3f}, original_w={original_w}, original_h={original_h}")
+        #print(f"DEBUG: ratio_w={ratio_w:.3f}, ratio_h={ratio_h:.3f}, original_w={original_w}, original_h={original_h}")
 
         return blob, (ratio_w, ratio_h)
 
@@ -110,10 +112,10 @@ class ObjectDetector:
         for idx in (indices.flatten() if isinstance(indices, np.ndarray) else indices):
             det = detections[idx]
             final_detections.append(det)
-            print(f"✅ {det['label']} ({det['confidence']:.2f}) "
-                f"at {det['bbox']}")
+            #print(f"✅ {det['label']} ({det['confidence']:.2f}) "
+            #    f"at {det['bbox']}")
 
-        print(f"DEBUG: {len(detections)} pre-NMS -> {len(final_detections)} post-NMS")
+        #print(f"DEBUG: {len(detections)} pre-NMS -> {len(final_detections)} post-NMS")
         return final_detections
 
     def process_frame(self, frame, detections, target=None):
@@ -131,7 +133,7 @@ class ObjectDetector:
             cv2.imwrite(filepath, processed_frame)
 
             # ✅ Print log entry with matching filename
-            print(f"📸 Saved debug image: {filename} with {len(detections)} detections.")
+            #print(f"📸 Saved debug image: {filename} with {len(detections)} detections.")
 
         return frame
 
